@@ -50,25 +50,51 @@ jobs:
         .\solod.exe translate "hyperdbg-driver"
       shell: pwsh
 
-    - name: Setup EWDK
+    - name: Clone ewdk repository
       run: |
-        $ewdkUrl = "https://go.microsoft.com/fwlink/?linkid=2286082"
-        $ewdkPath = "$env:RUNNER_TEMP\EWDK.iso"
-        Write-Host "Downloading EWDK..."
-        Invoke-WebRequest -Uri $ewdkUrl -OutFile $ewdkPath -UseBasicParsing
-        Write-Host "Mounting EWDK ISO..."
-        $diskImage = Mount-DiskImage -ImagePath $ewdkPath -PassThru
-        $driveLetter = ($diskImage | Get-Volume).DriveLetter
-        Write-Host "EWDK mounted at ${driveLetter}:"
-        echo "EWDK_DRIVE=${driveLetter}" >> $env:GITHUB_ENV
-      shell: pwsh
+        cd $env:GITHUB_WORKSPACE\..
+        git clone https://github.com/ddkwork/ewdk.git
+
+    - name: Install aria2 (via ewdk)
+      working-directory: ..\ewdk
+      run: |
+        $ProgressPreference = 'SilentlyContinue'
+        $aria2Url = "https://github.com/aria2/aria2/releases/download/release-1.37.0/aria2-1.37.0-win-64bit-build1.zip"
+        Invoke-WebRequest -Uri $aria2Url -OutFile "$env:TEMP\aria2.zip" -UseBasicParsing
+        Expand-Archive -Path "$env:TEMP\aria2.zip" -DestinationPath "$env:TEMP\aria2" -Force
+        Get-ChildItem "$env:TEMP\aria2" -Filter "aria2c.exe" -Recurse | Move-Item -Destination "$env:TEMP\aria2c.exe" -Force
+
+    - name: Cache EWDK ISO
+      id: cache-iso
+      uses: actions/cache@v5
+      with:
+        path: C:\Users\runneradmin\AppData\Local\Temp\ewdk.iso
+        key: ewdk-iso-28000
+        restore-keys: |
+          ewdk-iso-
+
+    - name: Download EWDK ISO (via ewdk)
+      if: steps.cache-iso.outputs.cache-hit != 'true'
+      working-directory: ..\ewdk
+      run: |
+        go run scripts/get_ewdk_url.go
+        $ewdkUrl = Get-Content "$env:GITHUB_ENV" | Select-String "EWDK_ISO_URL=" | ForEach-Object { $_.ToString().Replace("EWDK_ISO_URL=", "").Trim() }
+        Write-Host "Downloading EWDK ISO from: $ewdkUrl"
+        & "$env:TEMP\aria2c.exe" -x16 -s16 --file-allocation=none -d "$env:TEMP" -o ewdk.iso $ewdkUrl
+        $fileSize = (Get-Item "$env:TEMP\ewdk.iso").Length
+        Write-Host "ISO downloaded: $([math]::Round($fileSize/1MB, 2)) MB"
+
+    - name: Mount EWDK ISO and set registry environment (via ewdk main.go)
+      working-directory: ..\ewdk
+      run: go run .
 
     - name: Build driver
+      shell: cmd
       run: |
-        $ewdkEnv = "${env:EWDK_DRIVE}:\BuildEnv\SetupBuildEnv.cmd"
         cd hyperdbg-driver\gen
-        cmd /c "`"$ewdkEnv`" && cmake -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release . && cmake --build build --config Release"
-      shell: pwsh
+        call d:\ewdk\BuildEnv\SetupBuildEnv.cmd
+        cmake -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release .
+        cmake --build build --config Release
 
     - name: Upload driver artifact
       uses: actions/upload-artifact@v4
