@@ -1,0 +1,127 @@
+#include "main.h"
+
+// -- Implementation --
+
+int main(void) {
+    {
+        // Empty string.
+        so_String s1 = so_str("");
+        if (so_len(s1) != 0 || so_string_ne(s1, so_str(""))) {
+            so_panic("want empty string");
+        }
+        so_String s2 = so_str("");
+        if (so_len(s2) != 0 || so_string_ne(s2, so_str(""))) {
+            so_panic("want empty string");
+        }
+    }
+    {
+        // String literals.
+        so_String s = so_str("Hello, 世界!");
+        if (so_len(s) != 7 + 3 + 3 + 1) {
+            so_panic("want len(s) == 14");
+        }
+    }
+    {
+        // Loop over string bytes.
+        so_String str = so_str("Hi 世界!");
+        for (so_int i = 0; i < so_len(str); i++) {
+            so_byte chr = so_at(so_byte, str, i);
+            so_println("%s %" PRId64 " %s %u", "i =", i, "chr =", chr);
+        }
+    }
+    {
+        // Loop over string runes.
+        so_String str = so_str("Hi 世界!");
+        for (so_int i = 0, _iw = 0; i < so_len(str); i += _iw) {
+            _iw = 0;
+            so_rune r = so_utf8_decode(str, i, &_iw);
+            so_println("%s %" PRId64 " %s %d", "i =", i, "r =", r);
+        }
+        for (so_int i = 0, _iw = 0; i < so_len(str); i += _iw) {
+            _iw = 0;
+            so_utf8_decode(str, i, &_iw);
+            so_println("%s %" PRId64, "i =", i);
+        }
+        for (so_int _ = 0, __w = 0; _ < so_len(str); _ += __w) {
+            __w = 0;
+            so_rune r = so_utf8_decode(str, _, &__w);
+            so_println("%s %d", "r =", r);
+        }
+        so_rune r = 0;
+        for (so_int _ = 0, __w = 0; _ < so_len(str); _ += __w) {
+            __w = 0;
+            r = so_utf8_decode(str, _, &__w);
+            (void)r;
+        }
+        for (so_int i = 0, _iw = 0; i < so_len(so_str("go")); i += _iw) {
+            _iw = 0;
+            so_rune r = so_utf8_decode(so_str("go"), i, &_iw);
+            so_println("%s %" PRId64 " %s %d", "i =", i, "r =", r);
+        }
+        for (so_int _i = 0, _iw = 0; _i < so_len(str); _i += _iw) {
+            _iw = 0;
+            so_utf8_decode(str, _i, &_iw);
+        }
+    }
+    {
+        // Continue in range-over-string loop.
+        so_String s = so_str("hello");
+        so_int n = 0;
+        for (so_int _ = 0, __w = 0; _ < so_len(s); _ += __w) {
+            __w = 0;
+            so_rune c = so_utf8_decode(s, _, &__w);
+            if (c == U'l') {
+                continue;
+            }
+            n++;
+        }
+        if (n != 3) {
+            so_panic("want n == 3");
+        }
+    }
+    {
+        // Compare strings.
+        so_String s1 = so_str("hello");
+        so_String s2 = so_str("world");
+        if (so_string_eq(s1, s2) || so_string_eq(s1, so_str("hello"))) {
+            so_println("%s", "ok");
+        }
+    }
+    {
+        // String addition.
+        so_String s1 = so_str("Hello, ");
+        so_String s2 = so_str("世界!");
+        so_String s3 = so_string_add(s1, s2);
+        if (so_string_ne(s3, so_str("Hello, 世界!"))) {
+            so_panic("want s3 == Hello, 世界!");
+        }
+    }
+    {
+        // String conversion to byte and rune slices, and vice versa.
+        so_String s1 = so_str("1世3");
+        so_Slice bs = so_string_bytes(s1);
+        if (so_at(so_byte, bs, 0) != '1') {
+            so_panic("unexpected byte");
+        }
+        so_Slice rs = so_string_runes(s1);
+        if (so_at(so_rune, rs, 1) != U'世') {
+            so_panic("unexpected rune");
+        }
+        so_String s2 = so_bytes_string(bs);
+        if (so_string_ne(s2, s1)) {
+            so_panic("want s2 == s1");
+        }
+        so_String s3 = so_runes_string(rs);
+        if (so_string_ne(s3, s1)) {
+            so_panic("want s3 == s1");
+        }
+        so_byte b = 'A';
+        if (so_string_ne(so_byte_string(b), so_str("A"))) {
+            so_panic("want string(b) == A");
+        }
+        so_rune r = U'世';
+        if (so_string_ne(so_rune_string(r), so_str("世"))) {
+            so_panic("want string(r) == 世");
+        }
+    }
+}

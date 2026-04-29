@@ -1,0 +1,341 @@
+package clang
+
+import (
+	"fmt"
+	"go/ast"
+	"go/types"
+	"io"
+	"strings"
+)
+
+// emitStructTypeSpec emits a typedef struct for a struct type declaration.
+func (g *Generator) emitStructTypeSpec(w io.Writer, spec *ast.TypeSpec) {
+	st := spec.Type.(*ast.StructType)
+	cName := g.declSymbolName(spec.Name.Name)
+	fmt.Fprintf(w, "%stypedef struct %s {\n", g.indent(), cName)
+	g.state.indent++
+	hasFields := false
+	for _, field := range st.Fields.List {
+		typ := g.types.TypeOf(field.Type)
+		for _, name := range field.Names {
+			hasFields = true
+			if innerSt, ok := field.Type.(*ast.StructType); ok {
+				g.emitInlineStructField(w, innerSt, name.Name)
+			} else if sig, ok := typ.(*types.Signature); ok {
+				g.emitFuncPtrField(w, spec, name.Name, sig, cName)
+			} else {
+				ct := g.mapCType(field, typ)
+				fmt.Fprintf(w, "%s%s;\n", g.indent(), ct.Decl(name.Name))
+			}
+		}
+	}
+	if !hasFields {
+		fmt.Fprintf(w, "%schar _pad;\n", g.indent())
+	}
+	g.state.indent--
+	fmt.Fprintf(w, "%s} %s;\n", g.indent(), cName)
+}
+
+// emitFuncPtrField emits a function pointer field in a struct typedef.
+// Example: so_int (*ratingFn)(struct main_Movie m);
+func (g *Generator) emitFuncPtrField(w io.Writer, node ast.Node, fieldName string, sig *types.Signature, enclosingStruct string) {
+	retType := g.returnType(node, sig)
+	var params []string
+	for p := range sig.Params().Variables() {
+		cType := g.mapType(node, p.Type())
+		if cType == enclosingStruct || cType == enclosingStruct+"*" {
+			cType = "struct " + cType
+		}
+		params = append(params, cType+" "+p.Name())
+	}
+	fmt.Fprintf(w, "%s%s (*%s)(%s);\n", g.indent(), retType, fieldName, strings.Join(params, ", "))
+}
+
+// emitInlineStructField emits an anonymous struct field inline within a parent struct.
+// Example: struct { so_int n; so_int i; } loop;
+// Does not support function pointer fields within the inline struct.
+func (g *Generator) emitInlineStructField(w io.Writer, st *ast.StructType, fieldName string) {
+	fmt.Fprintf(w, "%sstruct {\n", g.indent())
+	g.state.indent++
+	for _, f := range st.Fields.List {
+		typ := g.types.TypeOf(f.Type)
+		ct := g.mapCType(f, typ)
+		for _, name := range f.Names {
+			fmt.Fprintf(w, "%s%s;\n", g.indent(), ct.Decl(name.Name))
+		}
+	}
+	g.state.indent--
+	fmt.Fprintf(w, "%s} %s;\n", g.indent(), fieldName)
+}
+
+// emitMethodDecl emits a method as a C function.
+// Pointer receivers use void* self with a cast; value receivers pass the struct by value.
+func (g *Generator) emitMethodDecl(decl *ast.FuncDecl) {
+	w := g.state.writer
+	sig := g.funcSig(decl)
+	g.rejectNamedReturns(decl, sig)
+
+	// Init emission state.
+	recv := decl.Recv.List[0]
+	cStructType := g.symbolName(recvTypeName(recv))
+	named := len(recv.Names) > 0
+	_, isValueRecv := recv.Type.(*ast.Ident)
+
+	g.state.funcSig = sig
+	g.state.tempCount = 0
+
+	// Emit comments and function prototype.
+	if !g.emitComments(w, decl) {
+		fmt.Fprintln(w)
+	}
+	g.emitFuncProto(w, decl)
+	fmt.Fprintln(w, " {")
+	g.state.indent++
+
+	// Emit receiver preamble.
+	if isValueRecv {
+		// Value receivers are passed by value - no cast needed.
+		// Unnamed value receivers need (void)self to suppress unused warnings.
+		if !named {
+			fmt.Fprintf(w, "%s(void)self;\n", g.indent())
+		}
+	} else {
+		// Pointer receivers: cast void* self to the concrete type.
+		if named {
+			recvName := recv.Names[0].Name
+			fmt.Fprintf(w, "%s%s* %s = (%s*)self;\n", g.indent(), cStructType, recvName, cStructType)
+		} else {
+			fmt.Fprintf(w, "%s(void)self;\n", g.indent())
+		}
+	}
+
+	// Emit method body, handling deferred calls if needed.
+	g.walkStmts(decl.Body.List)
+	if !endsWithReturn(decl.Body.List) {
+		g.emitDeferredCalls()
+	}
+	g.state.indent--
+	fmt.Fprintf(w, "}\n")
+
+	// Reset state.
+	g.state.defers = nil
+	g.state.funcSig = nil
+}
+
+// emitAnonStructLit emits an anonymous struct literal.
+// (e.g. struct{ x, y int }{1, 2} or struct{ x, y int }{ x: 1, y: 2 })
+func (g *Generator) emitAnonStructLit(n *ast.CompositeLit, st *ast.StructType) {
+	w := g.state.writer
+	// Struct fields declaration.
+	fmt.Fprintf(w, "(struct {\n")
+	for _, field := range st.Fields.List {
+		typ := g.types.TypeOf(field.Type)
+		cType := g.mapType(field, typ)
+		for _, name := range field.Names {
+			fmt.Fprintf(w, "%s    %s %s;\n", g.indent(), cType, name.Name)
+		}
+	}
+	fmt.Fprintf(w, "%s})", g.indent())
+
+	// Struct fields initialization.
+	fmt.Fprintf(w, "{\n")
+	fields := collectFieldNames(st)
+	strucType := g.types.TypeOf(n).Underlying()
+	struc, ok := strucType.(*types.Struct)
+	if !ok {
+		fmt.Fprintf(w, "%s    0", g.indent())
+	} else {
+		for i, elt := range n.Elts {
+			if i > 0 {
+				fmt.Fprintf(w, ",\n")
+			}
+			if kv, ok := elt.(*ast.KeyValueExpr); ok {
+				fieldName := kv.Key.(*ast.Ident).Name
+				fmt.Fprintf(w, "%s    .%s = ", g.indent(), fieldName)
+				fieldType := structFieldType(struc, fieldName)
+				if fieldType != nil {
+					g.emitExprAsType(n, kv.Value, fieldType)
+				} else {
+					g.emitExpr(kv.Value)
+				}
+			} else {
+				fmt.Fprintf(w, "%s    .%s = ", g.indent(), fields[i])
+				g.emitExprAsType(n, elt, struc.Field(i).Type())
+			}
+		}
+	}
+	fmt.Fprintf(w, ",\n")
+	fmt.Fprintf(w, "%s}", g.indent())
+}
+
+// emitStructLit emits a struct literal (e.g. Point{1, 2} or Point{x: 1, y: 2}).
+func (g *Generator) emitStructLit(n *ast.CompositeLit) {
+	w := g.state.writer
+	var typ types.Type
+	if n.Type != nil {
+		typ = g.types.TypeOf(n.Type)
+	} else {
+		typ = g.types.TypeOf(n)
+	}
+	cType := g.mapType(n, typ)
+	fmt.Fprintf(w, "(%s)", cType)
+	g.emitBareStructInit(n)
+}
+
+// emitBareStructInit emits a struct literal as a bare initializer
+// (e.g. {.n = 200, .i = 10}) without a compound literal cast prefix.
+func (g *Generator) emitBareStructInit(n *ast.CompositeLit) {
+	w := g.state.writer
+	strucType := g.types.TypeOf(n).Underlying()
+	struc, ok := strucType.(*types.Struct)
+	if !ok {
+		fmt.Fprintf(w, "{0}")
+		return
+	}
+	fmt.Fprintf(w, "{")
+	for i, elt := range n.Elts {
+		if i > 0 {
+			fmt.Fprintf(w, ", ")
+		}
+		if kv, ok := elt.(*ast.KeyValueExpr); ok {
+			fieldName := kv.Key.(*ast.Ident).Name
+			fmt.Fprintf(w, ".%s = ", fieldName)
+			if lit, ok := isAnonStructLit(kv.Value); ok {
+				g.emitBareStructInit(lit)
+			} else {
+				g.emitExprAsType(n, kv.Value, structFieldType(struc, fieldName))
+			}
+		} else {
+			if lit, ok := isAnonStructLit(elt); ok {
+				g.emitBareStructInit(lit)
+			} else {
+				g.emitExprAsType(n, elt, struc.Field(i).Type())
+			}
+		}
+	}
+	fmt.Fprintf(w, "}")
+}
+
+// emitMethodCall emits a method call.
+func (g *Generator) emitMethodCall(sel *ast.SelectorExpr, args []ast.Expr) {
+	w := g.state.writer
+	selection := g.types.Selections[sel]
+	recv := selection.Recv()
+	sig := selection.Type().(*types.Signature)
+
+	// Get the struct type name.
+	var named *types.Named
+	if ptr, ok := recv.(*types.Pointer); ok {
+		named = ptr.Elem().(*types.Named)
+	} else {
+		named = recv.(*types.Named)
+	}
+
+	// Interface method dispatch: s.Perim(2) → s.Perim(s.self, 2)
+	if isInterfaceType(named) {
+		g.emitExpr(sel.X)
+		fmt.Fprintf(w, ".%s(", sel.Sel.Name)
+		g.emitExpr(sel.X)
+		fmt.Fprintf(w, ".self")
+		for i, arg := range args {
+			fmt.Fprintf(w, ", ")
+			g.emitExprAsType(sel, arg, sig.Params().At(i).Type())
+		}
+		fmt.Fprintf(w, ")")
+		return
+	}
+
+	// Regular method call: r.Area() → main_Rect_Area(&r)
+	cStructType := g.mapType(sel, named)
+	cName := cStructType + "_" + sel.Sel.Name
+	fmt.Fprintf(w, "%s(", cName)
+
+	// Prepend type arguments for generic method calls.
+	typeArgs := named.TypeArgs()
+	for i := 0; i < typeArgs.Len(); i++ {
+		if i > 0 {
+			fmt.Fprintf(w, ", ")
+		}
+		fmt.Fprintf(w, "%s", g.mapType(sel, typeArgs.At(i)))
+	}
+	if typeArgs.Len() > 0 {
+		fmt.Fprintf(w, ", ")
+	}
+
+	// Pass receiver based on method's declared receiver type and call-site type.
+	declSig := selection.Obj().Type().(*types.Signature)
+	_, isMethodPtrRecv := declSig.Recv().Type().(*types.Pointer)
+	xType := g.types.TypeOf(sel.X)
+	_, isCallSitePtr := xType.Underlying().(*types.Pointer)
+
+	if isMethodPtrRecv {
+		// Pointer receiver: pass address of value, or pointer directly.
+		if isCallSitePtr {
+			g.emitExpr(sel.X)
+		} else {
+			fmt.Fprintf(w, "&")
+			g.emitExpr(sel.X)
+		}
+	} else {
+		// Value receiver: pass value directly, or dereference pointer.
+		if isCallSitePtr {
+			fmt.Fprintf(w, "*")
+			g.emitExpr(sel.X)
+		} else {
+			g.emitExpr(sel.X)
+		}
+	}
+
+	// Pass method arguments.
+	if sig.Variadic() {
+		fixedCount := sig.Params().Len() - 1
+		for i := 0; i < fixedCount && i < len(args); i++ {
+			fmt.Fprintf(w, ", ")
+			g.emitExprAsType(sel, args[i], sig.Params().At(i).Type())
+		}
+		varElemType := sig.Params().At(fixedCount).Type().Underlying().(*types.Slice).Elem()
+		fmt.Fprintf(w, ", ")
+		if len(args) > fixedCount {
+			g.emitVariadicSlice(sel, args[fixedCount:], varElemType)
+		} else {
+			g.emitVariadicSlice(sel, nil, varElemType)
+		}
+	} else {
+		for i, arg := range args {
+			fmt.Fprintf(w, ", ")
+			g.emitExprAsType(sel, arg, sig.Params().At(i).Type())
+		}
+	}
+	fmt.Fprintf(w, ")")
+}
+
+// structFieldType returns the type of a struct field by name.
+func structFieldType(st *types.Struct, name string) types.Type {
+	for field := range st.Fields() {
+		if field.Name() == name {
+			return field.Type()
+		}
+	}
+	return nil
+}
+
+// collectFieldNames returns the field names from a struct type in order.
+func collectFieldNames(st *ast.StructType) []string {
+	var names []string
+	for _, field := range st.Fields.List {
+		for _, name := range field.Names {
+			names = append(names, name.Name)
+		}
+	}
+	return names
+}
+
+// isAnonStructLit checks if an expression is an anonymous struct composite literal.
+func isAnonStructLit(expr ast.Expr) (*ast.CompositeLit, bool) {
+	lit, ok := expr.(*ast.CompositeLit)
+	if !ok {
+		return nil, false
+	}
+	_, ok = lit.Type.(*ast.StructType)
+	return lit, ok
+}

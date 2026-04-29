@@ -1,0 +1,25 @@
+#include "main.h"
+
+// -- Types --
+
+typedef struct person {
+    so_String name;
+} person;
+
+// -- Implementation --
+
+int main(void) {
+    so_int vInt = 42;
+    double vFloat = 3.14;
+    bool vBool = true;
+    so_byte vByte = 'x';
+    so_rune vRune = U'本';
+    so_String vString = so_str("hello");
+    person alice = (person){.name = so_str("alice")};
+    person* vPtr = &alice;
+    so_println("%" PRId64 " %f %d %u %d %.*s %p", vInt, vFloat, vBool, vByte, vRune, vString.len, vString.ptr, vPtr);
+    so_print("%s", "a");
+    so_print("");
+    so_print("%s", "b");
+    so_println("");
+}
