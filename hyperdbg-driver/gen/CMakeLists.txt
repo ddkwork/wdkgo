@@ -1,36 +1,37 @@
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.28)
+
+include(d:/ewdk/ewdk.cmake)
+
 project(HyperDbgDriver C ASM_MASM)
+set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
-set(CMAKE_C_STANDARD 11)
-set(CMAKE_C_STANDARD_REQUIRED ON)
+set(WDK_NTDDI_VERSION "0x0A000008")
 
-if(CMAKE_BUILD_TYPE STREQUAL "")
-    set(CMAKE_BUILD_TYPE Debug)
-endif()
+set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
+set(CMAKE_C_FLAGS_DEBUG "/Od /Zi /RTC1")
+set(CMAKE_C_FLAGS "/Od /Zi /RTC1")
 
-# WDK/KMDF settings
-set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}")
-find_package(WDK REQUIRED)
-
-# Include directories
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-# Find all generated C and ASM files
-file(GLOB_RECURSE SOURCES
-    "*.c"
+add_definitions(
+    -DZYCORE_STATIC_BUILD
+    -DZYDIS_STATIC_BUILD
 )
 
-file(GLOB_RECURSE ASM_SOURCES
-    "*.asm"
-)
+file(GLOB_RECURSE SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/*.c")
+file(GLOB_RECURSE ASM_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/*.asm")
 
-set(ALL_SOURCES ${SOURCES} ${ASM_SOURCES})
-
-# Exclude external dependencies
 list(FILTER SOURCES EXCLUDE REGEX ".*zydis.*")
 list(FILTER SOURCES EXCLUDE REGEX ".*zycore.*")
 
-# Build the driver using wdk_add_driver
-wdk_add_driver(HyperDbgDriver ${ALL_SOURCES})
+set(ALL_SOURCES ${SOURCES} ${ASM_SOURCES})
+
+km_sys(HyperDbgDriver
+    KMDF 1.15
+    ${ALL_SOURCES}
+)
+target_compile_definitions(HyperDbgDriver PRIVATE NTDDI_VERSION=0x0A000008)
+target_compile_options(HyperDbgDriver PRIVATE /Od /Zi /RTC1)
+target_link_options(HyperDbgDriver PRIVATE /DEBUG /FORCE:MULTIPLE)

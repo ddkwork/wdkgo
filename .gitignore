@@ -1,1 +1,8 @@
 .idea
+/todo/
+/HyperDbg/
+*.exe
+*.sys
+*.pdb
+*.obj
+build/

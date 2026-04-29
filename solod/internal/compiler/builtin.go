@@ -14,7 +14,7 @@ import (
 //go:embed builtin/builtin.h builtin/builtin.c builtin/builtin_kernel.h builtin/builtin_kernel.c
 var builtinFS embed.FS
 
-//go:embed builtin/CMakeLists.txt builtin/FindWdk.cmake builtin/build.ps1
+//go:embed builtin/CMakeLists.txt builtin/build.bat builtin/wdk.h builtin/wdk.c
 var cmakeFS embed.FS
 
 func writeBuiltin(outDir string, kernelMode bool) error {
@@ -53,11 +53,8 @@ func writeCMake(outDir string) error {
 		return fmt.Errorf("write CMakeLists.txt: %w", err)
 	}
 
-	if cmakeData, err := cmakeFS.ReadFile("builtin/FindWdk.cmake"); err == nil {
-		os.WriteFile(filepath.Join(outDir, "FindWdk.cmake"), cmakeData, 0o644)
-	}
-	if buildData, err := cmakeFS.ReadFile("builtin/build.ps1"); err == nil {
-		os.WriteFile(filepath.Join(outDir, "build.ps1"), buildData, 0o644)
+	if buildData, err := cmakeFS.ReadFile("builtin/build.bat"); err == nil {
+		os.WriteFile(filepath.Join(outDir, "build.bat"), buildData, 0o644)
 	}
 
 	return nil
@@ -88,14 +85,10 @@ func copyAsmFiles(pkg *packages.Package, outDir string) error {
 }
 
 func writeWdkBindings(outDir string) error {
-	wdkDir := "c:\\Users\\Admin\\Desktop\\New folder\\build\\hyperdbg-driver\\wdk"
 	oldWdkDir := filepath.Join(outDir, "so", "wdk")
 	os.RemoveAll(oldWdkDir)
-	if _, err := os.Stat(wdkDir); err != nil {
-		return nil
-	}
 	for _, name := range []string{"wdk.h", "wdk.c"} {
-		data, err := os.ReadFile(filepath.Join(wdkDir, name))
+		data, err := cmakeFS.ReadFile("builtin/" + name)
 		if err != nil {
 			continue
 		}

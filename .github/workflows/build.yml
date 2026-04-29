@@ -1,0 +1,113 @@
+name: Build HyperDbg Driver
+
+on:
+  push:
+    branches:
+      - master
+      - dev
+  pull_request:
+    branches:
+      - master
+      - dev
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.23'
+
+    - name: Clone HyperDbg repository
+      run: |
+        if (Test-Path HyperDbg) { Remove-Item -Recurse -Force HyperDbg }
+        git clone --recursive -b dev https://github.com/HyperDbg/HyperDbg.git HyperDbg
+      shell: pwsh
+
+    - name: Verify Go source
+      run: |
+        cd hyperdbg-driver
+        go fix ./...
+        go vet ./...
+      shell: pwsh
+
+    - name: Build Solod transpiler
+      run: |
+        cd solod
+        go build -o ../solod.exe ./cmd/so
+      shell: pwsh
+
+    - name: Run Solod translate
+      run: |
+        .\solod.exe translate "hyperdbg-driver"
+      shell: pwsh
+
+    - name: Setup EWDK
+      run: |
+        $ewdkUrl = "https://go.microsoft.com/fwlink/?linkid=2286082"
+        $ewdkPath = "$env:RUNNER_TEMP\EWDK.iso"
+        Write-Host "Downloading EWDK..."
+        Invoke-WebRequest -Uri $ewdkUrl -OutFile $ewdkPath -UseBasicParsing
+        Write-Host "Mounting EWDK ISO..."
+        $diskImage = Mount-DiskImage -ImagePath $ewdkPath -PassThru
+        $driveLetter = ($diskImage | Get-Volume).DriveLetter
+        Write-Host "EWDK mounted at ${driveLetter}:"
+        echo "EWDK_DRIVE=${driveLetter}" >> $env:GITHUB_ENV
+      shell: pwsh
+
+    - name: Build driver
+      run: |
+        $ewdkEnv = "${env:EWDK_DRIVE}:\BuildEnv\SetupBuildEnv.cmd"
+        cd hyperdbg-driver\gen
+        cmd /c "`"$ewdkEnv`" && cmake -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release . && cmake --build build --config Release"
+      shell: pwsh
+
+    - name: Upload driver artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: solod_hyperkd
+        path: hyperdbg-driver/gen/build/*.sys
+        if-no-files-found: warn
+
+    - name: Get commit info
+      id: info
+      run: |
+        $commit = git -C HyperDbg rev-parse HEAD
+        $date = git -C HyperDbg log -1 --format=%cd --date=short
+        echo "commit=$commit" >> $env:GITHUB_OUTPUT
+        echo "date=$date" >> $env:GITHUB_OUTPUT
+      shell: pwsh
+
+    - name: Delete existing release
+      uses: dev-drprasad/delete-older-releases@v0.3.4
+      with:
+        keep_latest: 0
+        delete_tag_pattern: latest
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v3
+      with:
+        tag_name: latest
+        name: HyperDbg Solod Driver - Latest
+        files: |
+          hyperdbg-driver/gen/build/*.sys
+        body: |
+          HyperDbg Solod-transpiled driver build
+
+          Snapshot Date: ${{ steps.info.outputs.date }}
+          HyperDbg Commit: ${{ steps.info.outputs.commit }}
+          Repo Commit: ${{ github.sha }}
+        draft: false
+        prerelease: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

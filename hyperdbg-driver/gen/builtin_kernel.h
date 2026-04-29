@@ -2,7 +2,14 @@
 
 #include <ntifs.h>
 #include <ntstrsafe.h>
-#include <stdint.h>
+typedef UCHAR uint8_t;
+typedef CHAR int8_t;
+typedef USHORT uint16_t;
+typedef SHORT int16_t;
+typedef ULONG uint32_t;
+typedef LONG int32_t;
+typedef ULONGLONG uint64_t;
+typedef LONGLONG int64_t;
 #include <malloc.h>
 #include <intrin.h>
 
@@ -19,6 +26,7 @@
 #pragma intrinsic(__vmx_vmresume)
 #pragma intrinsic(__vmx_vmwrite)
 #pragma intrinsic(__vmx_vmptrld)
+#pragma intrinsic(__readgsqword)
 
 #ifndef __cplusplus
 typedef unsigned char bool;

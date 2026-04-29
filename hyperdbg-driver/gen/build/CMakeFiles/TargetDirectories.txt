@@ -1,3 +1,0 @@
-C:/Users/Admin/Desktop/New folder/hyperdbg-driver/gen/build/CMakeFiles/HyperDbgDriver.dir
-C:/Users/Admin/Desktop/New folder/hyperdbg-driver/gen/build/CMakeFiles/ALL_BUILD.dir
-C:/Users/Admin/Desktop/New folder/hyperdbg-driver/gen/build/CMakeFiles/ZERO_CHECK.dir

@@ -2,7 +2,14 @@
 
 #include <ntifs.h>
 #include <ntstrsafe.h>
-#include <stdint.h>
+typedef UCHAR uint8_t;
+typedef CHAR int8_t;
+typedef USHORT uint16_t;
+typedef SHORT int16_t;
+typedef ULONG uint32_t;
+typedef LONG int32_t;
+typedef ULONGLONG uint64_t;
+typedef LONGLONG int64_t;
 #include <malloc.h>
 #include <intrin.h>
 
@@ -56,19 +63,6 @@ static inline uint8_t AsmVmxVmxPtrld(uint64_t PhysicalAddr) {
 }
 static inline void AsmVmxVmxOff(void) {
     __vmx_off();
-}
-
-static inline uint64_t AsmGetFsBase(void) {
-    return __readgsqword(0);
-}
-
-static inline uint64_t AsmGetGsBase(void) {
-    return __readgsqword(0);
-}
-
-extern void AsmVmexitHandler(void);
-static inline uintptr_t AsmVmexitHandlerAddr(void) {
-    return (uintptr_t)AsmVmexitHandler;
 }
 
 #ifndef ExAllocatePool2
