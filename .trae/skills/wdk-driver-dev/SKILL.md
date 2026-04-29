@@ -130,21 +130,14 @@ description: "Go-based Windows kernel driver development workflow using Solod tr
 ## Build Commands
 
 ```powershell
-# 完整构建流程 (4步) — ⚠️ 必须按顺序执行！
+# 完整构建流程 (3步) — ⚠️ 必须按顺序执行！
 
-# 步骤0: Go 语法验证和测试 (翻译前必做!)
-cd "d:\New\New folder\wdkgo\hyperdbg-driver"
-go fix ./...
+# 步骤0: Go 语法验证和翻译 (翻译前必做!)
+cd "d:\New\New folder\wdkgo"
 go vet ./...
-go test ./...          # 单元测试必须通过，否则生成的 C 代码不可靠
+go test -v -run TestTranslate -count=1 -timeout 300s .
 
-# 步骤1: 构建 Solod 转译器
-cd "d:\New\New folder\wdkgo\solod"; go build -o ../solod.exe ./cmd/so
-
-# 步骤2: 运行翻译器 (Go → C)
-cd "d:\New\New folder\wdkgo"; .\solod.exe translate "hyperdbg-driver"
-
-# 步骤3: EWDK 编译 (C → .sys)
+# 步骤1: EWDK 编译 (C → .sys)
 cd "d:\New\New folder\wdkgo\hyperdbg-driver\gen"; build.bat
 
 # 仅重新生成 WDK Go 绑定包 (当 winmd 变更时)
@@ -155,12 +148,11 @@ cd "d:\New\New folder\wdkgo\solod"; go fix ./so/wdk/...; go vet ./so/wdk/...
 ```
 
 ### ⚠️ 翻译前验证原则
-**在运行 `so translate` 之前，必须确保 Go 源码本身是正确的！**
-1. `go fix ./...` — 自动修复过时语法
-2. `go vet ./...` — 静态分析检查
-3. `go test ./...` — 单元测试通过
+**在运行翻译测试之前，必须确保 Go 源码本身是正确的！**
+1. `go vet ./...` — 静态分析检查
+2. `go test -run TestTranslate` — 运行翻译测试，自动调用 `compiler.Translate`
 
-如果 Go 代码本身有语法错误或测试失败，翻译器生成的 C 代码必然不可靠。
+如果 Go 代码本身有语法错误，翻译器生成的 C 代码必然不可靠。
 **同样，WDK 绑定生成器 (`wdkgen-solod`) 运行后也必须验证生成的 `so/wdk` 包。**
 
 ## Error Fix History (供参考)

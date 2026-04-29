@@ -34,20 +34,12 @@ jobs:
 
     - name: Verify Go source
       run: |
-        cd hyperdbg-driver
-        go fix ./...
         go vet ./...
       shell: pwsh
 
-    - name: Build Solod transpiler
+    - name: Run translate test
       run: |
-        cd solod
-        go build -o ../solod.exe ./cmd/so
-      shell: pwsh
-
-    - name: Run Solod translate
-      run: |
-        .\solod.exe translate "hyperdbg-driver"
+        go test -v -run TestTranslate -count=1 -timeout 300s .
       shell: pwsh
 
     - name: Clone ewdk repository
