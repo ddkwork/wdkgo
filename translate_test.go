@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"solod.dev/internal/compiler"
+	"solod.dev/compiler"
 )
 
 func TestTranslate(t *testing.T) {
