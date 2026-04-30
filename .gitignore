@@ -6,3 +6,4 @@
 *.pdb
 *.obj
 build/
+/hyperdbg-driver/gen/build_debug/
