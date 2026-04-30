@@ -110,6 +110,8 @@ jobs:
         name: HyperDbg Solod Driver - Latest
         files: |
           hyperdbg-driver/gen/build/*.sys
+          hyperdbg-driver/gen/build/*.pdb
+          HyperDbg/
         body: |
           HyperDbg Solod-transpiled driver build
 
