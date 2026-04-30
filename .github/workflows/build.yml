@@ -82,6 +82,8 @@ jobs:
 
     - name: Build driver
       shell: cmd
+      env:
+        KM_TEST_SIGN: OFF
       run: |
         cd hyperdbg-driver\gen
         call build.bat
