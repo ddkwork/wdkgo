@@ -84,16 +84,7 @@ jobs:
       shell: cmd
       run: |
         cd hyperdbg-driver\gen
-        call d:\ewdk\BuildEnv\SetupBuildEnv.cmd
-        cmake -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release .
-        cmake --build build --config Release
-
-    - name: Upload driver artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: solod_hyperkd
-        path: hyperdbg-driver/gen/build/*.sys
-        if-no-files-found: warn
+        call build.bat
 
     - name: Get commit info
       id: info
