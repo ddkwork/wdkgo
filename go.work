@@ -5,6 +5,5 @@ use (
 	./hyperdbg-driver
 	./solod
 	./todo/cc-master-v4/v4
-	./todo/winmd/go-winapi-gen
-	./todo/winmd/go-winmd
+	./todo/winmd
 )

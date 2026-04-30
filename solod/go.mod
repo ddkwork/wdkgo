@@ -14,6 +14,7 @@ require (
 	golang.org/x/sync v0.20.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/opt v0.2.0 // indirect
+	modernc.org/sortutil v1.2.1 // indirect
 	modernc.org/strutil v1.2.1 // indirect
 	modernc.org/token v1.1.0 // indirect
 )
